@@ -1,14 +1,29 @@
 import os
+import threading
+from flask import Flask
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# Bot Setup
+# --- Web Server to Keep Render Awake ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web_server():
+    app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = threading.Thread(target=run_web_server)
+    t.start()
+
+# --- Discord Bot Setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Configuration IDs
 CONFIG = {
     "ADMIN_ROLE": 1547959429679292456,
     "PARTNER_ROLE": 1547961683178160189,
@@ -18,63 +33,34 @@ CONFIG = {
         "APPLY": 1547965741054034011,
         "CONCERNS": 1547965793315332187,
     },
-    "COLOR": discord.Color.from_rgb(128, 128, 128)  # Gray
+    "COLOR": discord.Color.from_rgb(128, 128, 128)
 }
 
-# Helper function to handle channel permissions
 async def create_ticket_channel(guild: discord.Guild, user: discord.Member, category_id: int):
     category = guild.get_channel(category_id)
     admin_role = guild.get_role(CONFIG["ADMIN_ROLE"])
     
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        user: discord.PermissionOverwrite(
-            view_channel=True, 
-            send_messages=True, 
-            attach_files=True, 
-            embed_links=True
-        ),
+        user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True),
     }
-    
     if admin_role:
-        overwrites[admin_role] = discord.PermissionOverwrite(
-            view_channel=True, 
-            send_messages=True, 
-            attach_files=True, 
-            embed_links=True
-        )
+        overwrites[admin_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, embed_links=True)
 
-    return await guild.create_text_channel(
-        name=f"ticket-{user.name}",
-        category=category,
-        overwrites=overwrites
-    )
+    return await guild.create_text_channel(name=f"ticket-{user.name}", category=category, overwrites=overwrites)
 
-# --- Modals (Forms) ---
 class PartnerForm(discord.ui.Modal, title="Partner Application"):
-    ad = discord.ui.TextInput(
-        label="Server Ad (No @everyone/@here)",
-        style=discord.TextStyle.paragraph,
-        required=True
-    )
-    rep2 = discord.ui.TextInput(
-        label="2nd Rep Username (if sub 200 members)",
-        style=discord.TextStyle.short,
-        required=False
-    )
+    ad = discord.ui.TextInput(label="Server Ad (No @everyone/@here)", style=discord.TextStyle.paragraph, required=True)
+    rep2 = discord.ui.TextInput(label="2nd Rep Username (if sub 200 members)", style=discord.TextStyle.short, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
-        ad_text = self.ad.value
-        if "@everyone" in ad_text or "@here" in ad_text:
-            await interaction.response.send_message(
-                "Invalid server ad! Hidden or explicit `@everyone` / `@here` pings are not allowed.",
-                ephemeral=True
-            )
+        if "@everyone" in self.ad.value or "@here" in self.ad.value:
+            await interaction.response.send_message("Invalid server ad! Hidden or explicit pings are not allowed.", ephemeral=True)
             return
 
         ad_channel = interaction.guild.get_channel(CONFIG["PARTNER_AD_CHANNEL"])
         if ad_channel:
-            await ad_channel.send(ad_text)
+            await ad_channel.send(self.ad.value)
 
         partner_role = interaction.guild.get_role(CONFIG["PARTNER_ROLE"])
         if partner_role:
@@ -83,19 +69,11 @@ class PartnerForm(discord.ui.Modal, title="Partner Application"):
         await interaction.response.send_message("Server ad successfully submitted and role granted!", ephemeral=True)
 
 class NetworkForm(discord.ui.Modal, title="Network Application"):
-    link = discord.ui.TextInput(
-        label="Server Link",
-        style=discord.TextStyle.short,
-        required=True
-    )
+    link = discord.ui.TextInput(label="Server Link", style=discord.TextStyle.short, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
-        admin_role = CONFIG["ADMIN_ROLE"]
-        await interaction.response.send_message(
-            f"<@&{admin_role}> check for network.\nkindly wαit pαtiently. thank you sm !"
-        )
+        await interaction.response.send_message(f"<@&{CONFIG['ADMIN_ROLE']}> check for network.\nkindly wαit pαtiently. thank you sm !")
 
-# --- Requirement Buttons ---
 class PartnerReqsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -112,7 +90,6 @@ class NetworkReqsView(discord.ui.View):
     async def reqs_met(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(NetworkForm())
 
-# --- Option Selection Buttons ---
 class OptionButtonsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -154,7 +131,6 @@ class OptionButtonsView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed, view=NetworkReqsView())
 
-# --- Main Select Menu Panel ---
 class TicketDropdown(discord.ui.Select):
     def __init__(self):
         options = [
@@ -165,11 +141,7 @@ class TicketDropdown(discord.ui.Select):
         super().__init__(placeholder="Choose ticket type...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "give us 5 seconds to create your ticket! <a:loading_bg:953333008130244678>", 
-            ephemeral=True
-        )
-
+        await interaction.response.send_message("give us 5 seconds to create your ticket! <a:loading_bg:953333008130244678>", ephemeral=True)
         val = self.values[0]
         cat_id = CONFIG["CATEGORIES"]["PARTNER"]
         if val == "apply":
@@ -181,22 +153,13 @@ class TicketDropdown(discord.ui.Select):
 
         if val == "partner":
             embed = discord.Embed(
-                description=(
-                    "_ _\n            tickette booth . . .\n"
-                    "> reαdy to be pαrtners with **gg.weeknd?**\n"
-                    "> click on the respective buttons to continue!\n_ _"
-                ),
+                description="_ _\n            tickette booth . . .\n> reαdy to be pαrtners with **gg.weeknd?**\n> click on the respective buttons to continue!\n_ _",
                 color=CONFIG["COLOR"]
             )
             await channel.send(embed=embed, view=OptionButtonsView())
         else:
             embed = discord.Embed(
-                description=(
-                    "_ _\n     thαnk you for contαcting us !\n"
-                    "     kindly  wαit  for our stαffs  to\n"
-                    "     αssist  you  with  this  mαtter\n_ _\n"
-                    "> use .ping after 2 hrs w no response"
-                ),
+                description="_ _\n     thαnk you for contαcting us !\n     kindly  wαit  for our stαffs  to\n     αssist  you  with  this  mαtter\n_ _\n> use .ping after 2 hrs w no response",
                 color=CONFIG["COLOR"]
             )
             await channel.send(embed=embed)
@@ -206,15 +169,10 @@ class TicketSelectView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(TicketDropdown())
 
-# --- Commands ---
 @bot.tree.command(name="ticket-setup", description="Setup the ticket panel")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket_setup(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="Ticket Support",
-        description="Select an option below to open a ticket.",
-        color=CONFIG["COLOR"]
-    )
+    embed = discord.Embed(title="Ticket Support", description="Select an option below to open a ticket.", color=CONFIG["COLOR"])
     await interaction.response.send_message(embed=embed, view=TicketSelectView())
 
 @bot.event
@@ -222,4 +180,6 @@ async def on_ready():
     await bot.tree.sync()
     print(f"Logged in as {bot.user}")
 
+# Start web server and run bot
+keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
